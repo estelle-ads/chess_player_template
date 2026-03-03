@@ -10,7 +10,7 @@ from chess_tournament.players import Player
 
 class TransformerPlayer(Player):
     """
-    Tiny LM baseline chess player.
+    Qwen baseline chess player.
 
     REQUIRED:
         Subclasses chess_tournament.players.Player
@@ -20,9 +20,9 @@ class TransformerPlayer(Player):
 
     def __init__(
         self,
-        name: str = "TinyLMPlayer",
-        model_id: str = "HuggingFaceTB/SmolLM2-135M-Instruct",
-        temperature: float = 0.7,
+        name: str = "Qwen2.5", ### NEW
+        model_id: str = "HuggingFaceTB/Qwen2.5-1.5B-Instruct", #NEW: Qwen2.5-1.5B-Instruct
+        temperature: float = 0.2,  ### NEW: lower temperature for stable moves
         max_new_tokens: int = 8,
     ):
         super().__init__(name)
@@ -53,10 +53,23 @@ class TransformerPlayer(Player):
             self.model.eval()
 
     # -------------------------
-    # Prompt
+    # Prompt (adjusted part, see commented parts!!!)
     # -------------------------
+    ### NEW def _build_prompt
     def _build_prompt(self, fen: str) -> str:
-        return f"FEN: {fen}\nMove:"
+
+        board = chess.Board(fen)
+        legal_moves = [m.uci() for m in board.legal_moves]
+
+        return f"""You are a chess engine. Choose the BEST move from the list of legal moves.
+        Output ONE move, exactly in UCI format (e.g., e2e4, g1f3, e7e8q).
+        Do NOT output explanations, punctuation, or extra text.
+
+Legal moves: {legal_moves}
+Position: {fen}
+Best move:
+"""
+    ### END of the new part^
 
     def _extract_move(self, text: str) -> Optional[str]:
         match = self.UCI_REGEX.search(text)
@@ -77,31 +90,49 @@ class TransformerPlayer(Player):
         except Exception:
             return self._random_legal(fen)
 
+        board = chess.Board(fen)
+        legal_moves = [m.uci() for m in board.legal_moves]
+
+        if not legal_moves:
+            return None
+
         prompt = self._build_prompt(fen)
+
+        ### NEW: majority vote
+        move_counts = {}
 
         try:
             inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
 
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=self.max_new_tokens,
-                    do_sample=True,
-                    temperature=self.temperature,
-                    pad_token_id=self.tokenizer.pad_token_id,
-                )
+            # Generate multiple samples
+            for _ in range(5):  ### NEW: 5 samples for majority vote
+                with torch.no_grad():
+                    outputs = self.model.generate(
+                        **inputs,
+                        max_new_tokens=self.max_new_tokens,
+                        do_sample=True,
+                        temperature=self.temperature,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                    )
 
-            decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+                decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-            if decoded.startswith(prompt):
-                decoded = decoded[len(prompt):]
+                if decoded.startswith(prompt):
+                    decoded = decoded[len(prompt):]
 
-            move = self._extract_move(decoded)
+                move = self._extract_move(decoded)
 
-            if move:
-                return move
+                # Count only legal moves
+                if move and move in legal_moves:
+                    move_counts[move] = move_counts.get(move, 0) + 1
+
+            # Return the most frequent legal move
+            if move_counts:
+                return max(move_counts, key=move_counts.get)
 
         except Exception:
             pass
 
-        return self._random_legal(fen)
+        ### fallback to random legal move
+        return random.choice(legal_moves)
+    ### END NEW majority vote
