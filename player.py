@@ -20,8 +20,8 @@ class TransformerPlayer(Player):
 
     def __init__(
         self,
-        name: str = "Qwen2.5-1.5B", ### NEW
-        model_id: str = "HuggingFaceTB/Qwen/Qwen2.5-1.5B", #NEW: Qwen2.5-1.5B
+        name: str = "Qwen2.5-1.5B-Instruct", ### NEW
+        model_id: str = "HuggingFaceTB/Qwen/Qwen2.5-1.5B-Instruct", #NEW: Qwen2.5-1.5B
         temperature: float = 0.2,  ### NEW: lower temperature for stable moves
         max_new_tokens: int = 8,
     ):
